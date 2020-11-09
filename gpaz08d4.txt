@@ -1,0 +1,469 @@
+      *--------------------------------------------------------------*  00001019
+      * PROJETO 04 - METAL SCREWS INC.                               *  00002019
+      *--------------------------------------------------------------*  00003019
+      * OBJETIVO : ATUALIZACAO DA TABELA TBPRODUTO PELO CURSOR, COM  *  00004019
+      *            BASE NO ARQUIVO DE MOVIMENTOS MOVPRDD4            *
+      *--------------------------------------------------------------*  00010013
+       IDENTIFICATION                      DIVISION.                    00020019
+      *--------------------------------------------------------------*  00030013
+       PROGRAM-ID.                         GPAZ08D4.                    00040019
+       AUTHOR.                             KARINA.                      00050013
+      *--------------------------------------------------------------*  00060013
+       ENVIRONMENT                         DIVISION.                    00070019
+      *--------------------------------------------------------------*  00080013
+       CONFIGURATION                       SECTION.                     00090019
+       SPECIAL-NAMES.                                                   00100013
+           DECIMAL-POINT IS COMMA.                                      00110013
+                                                                        00111019
+       INPUT-OUTPUT                        SECTION.                     00120019
+       FILE-CONTROL.                                                    00130019
+           SELECT MOVPRDD4 ASSIGN          TO UT-S-MOVPRDD4
+           FILE STATUS IS FS-MOVPRDD4
+           .
+      *--------------------------------------------------------------*  00140013
+       DATA                                DIVISION.                    00150019
+      *--------------------------------------------------------------*  00160013
+       FILE                                SECTION.                     00170019
+
+       FD  MOVPRDD4
+           RECORDING MODE IS F.
+
+           COPY BK002D4 REPLACING ==::== BY ====.
+
+      *--------------------------------------------------------------*
+       WORKING-STORAGE                     SECTION.                     00180019
+      *--------------------------------------------------------------*  00231019
+      * DECLARACAO DAS VARIAVEIS ESPELHOS E SUAS REDEFINICOES
+      *--------------------------------------------------------------*
+           COPY BK002D4 REPLACING ==::== BY ==WS-==.
+
+      *--------------------------------------------------------------*
+      * BOOK PARA VARIAVEIS DE CALCULO DE TEMPO
+      *--------------------------------------------------------------*
+           COPY VARDATA.
+           COPY VARTEMPO.
+
+      *--------------------------------------------------------------*
+      * BOOK VARIAVEIS HOSPEDEIRAS
+      *--------------------------------------------------------------*
+
+           EXEC SQL
+              INCLUDE BK002TP
+           END-EXEC
+
+      *--------------------------------------------------------------*
+      * BOOK VARIAVEIS PARA USO DO SQL
+      *--------------------------------------------------------------*
+
+           EXEC SQL
+              INCLUDE SQLCA
+           END-EXEC
+
+      *--------------------------------------------------------------*
+      * INDICADORES DA TABELA TBPRODUTO
+      *--------------------------------------------------------------*
+
+       01  INDICADORES.
+           05 ICODPROD                     PIC S9(04) COMP.
+           05 IDESCPROD                    PIC S9(04) COMP.
+           05 IUNIDPROD                    PIC S9(04) COMP.
+           05 ILOCALPROD                   PIC S9(04) COMP.
+           05 IQTDEST                      PIC S9(04) COMP.
+           05 IQTDMAX                      PIC S9(04) COMP.
+           05 IQTDMIN                      PIC S9(04) COMP.
+           05 IPRECOCOMPRA                 PIC S9(04) COMP.
+           05 IPRECOVENDA                  PIC S9(04) COMP.
+           05 IPERCOMIS                    PIC S9(04) COMP.
+
+      *--------------------------------------------------------------*
+      * VARIAVEIS CONTADORES COMP
+      *--------------------------------------------------------------*
+
+       01  WS-CONTADORES-COMP.
+           05 WS-CTMOVLIDOS                PIC 9(05) COMP.
+           05 WS-CTCURPROD                 PIC 9(05) COMP.
+           05 WS-CTINVALIDOS               PIC 9(05) COMP.
+           05 WS-CTCURLIDOS                PIC 9(05) COMP.
+           05 WS-CTEXCLUIDOS               PIC 9(05) COMP.
+           05 WS-CTALTERADOS               PIC 9(05) COMP.
+
+      *--------------------------------------------------------------*
+      * VARIAVEIS CONTADORES FORMATADAS
+      *--------------------------------------------------------------*
+
+       01  WS-CONTADORES-FORMATADOS.
+           05 WS-CTMOVLIDOS-F              PIC ZZ.ZZ9.
+           05 WS-CTCURPROD-F               PIC ZZ.ZZ9.
+           05 WS-CTINVALIDOS-F             PIC ZZ.ZZ9.
+           05 WS-CTCURLIDOS-F              PIC ZZ.ZZ9.
+           05 WS-CTEXCLUIDOS-F             PIC ZZ.ZZ9.
+           05 WS-CTALTERADOS-F             PIC ZZ.ZZ9.
+
+      *--------------------------------------------------------------*
+      * VARIAVEIS PARA ROTINA DE ERRO
+      *--------------------------------------------------------------*
+
+       01  FS-MOVPRDD4                     PIC X(02).
+           88  SUCESSO-CAD                          VALUE "00".
+           88  FIM-ARQ-CAD                          VALUE "10".
+
+       77  WS-MSG                          PIC X(60).
+       77  WS-FS                           PIC X(02).
+       77  WS-SQLCODE                      PIC +9(9).
+
+      *--------------------------------------------------------------*  00240013
+       PROCEDURE                           DIVISION.                    00250019
+      *--------------------------------------------------------------*  00260013
+           PERFORM 1000-INICIALIZAR
+           PERFORM 2000-PROCESSAR
+             UNTIL FIM-ARQ-CAD
+           PERFORM 3000-TERMINO
+           STOP RUN
+           .
+
+      *--------------------------------------------------------------*  00260013
+       1000-INICIALIZAR.
+           ACCEPT WS-HORARIO-INICIAL FROM TIME
+           INITIALIZE                              WS-CTMOVLIDOS
+                                                   WS-CTCURLIDOS
+                                                   WS-CTEXCLUIDOS
+                                                   WS-CTALTERADOS
+                                                   WS-CTINVALIDOS
+
+           OPEN INPUT MOVPRDD4
+
+           IF NOT SUCESSO-CAD
+              MOVE "ERRO OPEN MOVPRDD4"    TO      WS-MSG
+              MOVE FS-MOVPRDD4             TO      WS-FS
+              GO TO 9000-ERRO
+           END-IF
+
+           EXEC SQL
+              DECLARE MANUTENCAO CURSOR WITH HOLD FOR
+                 SELECT   CODPROD
+                       ,  DESCPROD
+                       ,  UNIDPROD
+                       ,  LOCALPROD
+                       ,  QTDEST
+                       ,  QTDMAX
+                       ,  QTDMIN
+                       ,  PRECOCOMPRA
+                       ,  PRECOVENDA
+                       ,  PERCOMIS
+                 FROM     TBPRODUTO
+                 WHERE    QTDEST < QTDMIN
+                 FOR UPDATE OF CODPROD
+                       ,  DESCPROD
+                       ,  UNIDPROD
+                       ,  LOCALPROD
+                       ,  QTDEST
+                       ,  QTDMAX
+                       ,  QTDMIN
+                       ,  PRECOCOMPRA
+                       ,  PRECOVENDA
+                       ,  PERCOMIS
+           END-EXEC
+
+           PERFORM 1500-LER-MOVPRDD4
+           .
+
+      *--------------------------------------------------------------*  00260013
+       1500-LER-MOVPRDD4.
+           READ MOVPRDD4 INTO WS-REG-MOVPRDD4
+
+           IF SUCESSO-CAD
+              ADD 1                        TO      WS-CTMOVLIDOS
+           ELSE
+              IF NOT FIM-ARQ-CAD
+                 MOVE "ERRO LEITURA MODPRDD4"
+                                           TO      WS-MSG
+                 MOVE FS-MOVPRDD4          TO      WS-FS
+                 GO TO 9000-ERRO
+              END-IF
+           END-IF
+           .
+
+      *--------------------------------------------------------------*  00260013
+       2000-PROCESSAR.
+           IF WS-TIPOMOVTO-D4 = "A" OR "E"
+              EXEC SQL
+                 OPEN MANUTENCAO
+              END-EXEC
+
+              IF SQLCODE NOT EQUAL 0
+
+                 MOVE "ERRO AO ABRIR O CURSOR"
+                                           TO      WS-MSG
+                 MOVE SQLCODE              TO      WS-SQLCODE
+                 GO TO 9000-ERRO-DB2
+              END-IF
+
+              PERFORM 2100-LER-MANUTENCAO WITH TEST AFTER
+                 UNTIL WS-CODPROD-D4 EQUAL CODPROD OR SQLCODE = +100
+
+              IF SQLCODE EQUAL 0
+
+                 DISPLAY "PARA LOCALIZAR PRODUTO: "
+                         CODPROD
+                         " FORAM NECESSARIOS LER: "
+                         WS-CTCURPROD
+                         " LINHAS DO CURSOR."
+                 MOVE ZEROS                TO      WS-CTCURPROD
+
+                 IF WS-TIPOMOVTO-D4 = "E"
+                    PERFORM 2200-EXCLUSAO
+                 END-IF
+
+                 IF WS-TIPOMOVTO-D4 = "A"
+                    PERFORM 2300-ALTERACAO
+                 END-IF
+              ELSE
+                 ADD 1 TO WS-CTINVALIDOS
+              END-IF
+
+              EXEC SQL
+                CLOSE MANUTENCAO
+              END-EXEC
+
+              IF SQLCODE NOT EQUAL 0
+                 MOVE "ERRO AO FECHAR O CURSOR"
+                                           TO      WS-MSG
+                 MOVE SQLCODE              TO      WS-SQLCODE
+                 GO TO 9000-ERRO-DB2
+              END-IF
+           ELSE
+              ADD 1 TO WS-CTINVALIDOS
+           END-IF
+
+           PERFORM 1500-LER-MOVPRDD4
+           .
+
+      *--------------------------------------------------------------*  00260013
+       2100-LER-MANUTENCAO.
+           EXEC SQL
+              FETCH MANUTENCAO
+                 INTO  :CODPROD
+                     , :DESCPROD     :IDESCPROD
+                     , :UNIDPROD     :IUNIDPROD
+                     , :LOCALPROD    :ILOCALPROD
+                     , :QTDEST       :IQTDEST
+                     , :QTDMAX       :IQTDMAX
+                     , :QTDMIN       :IQTDMIN
+                     , :PRECOCOMPRA  :IPRECOCOMPRA
+                     , :PRECOVENDA   :IPRECOVENDA
+                     , :PERCOMIS     :IPERCOMIS
+           END-EXEC
+
+           IF SQLCODE EQUAL 0
+              PERFORM 9000-TRATA-INDICATOR
+              ADD 1 TO WS-CTCURLIDOS
+              ADD 1 TO WS-CTCURPROD
+           ELSE
+              IF SQLCODE NOT EQUAL +100
+                 MOVE "ERRO LEITURA CURSOR MANUTENCAO"
+                                           TO      WS-MSG
+                 MOVE SQLCODE              TO      WS-SQLCODE
+                 GO TO 9000-ERRO-DB2
+              END-IF
+           END-IF
+           .
+
+      *--------------------------------------------------------------*  00260013
+       2200-EXCLUSAO.
+           EXEC SQL
+              DELETE FROM TBPRODUTO
+              WHERE CURRENT OF MANUTENCAO
+           END-EXEC
+
+           IF SQLCODE EQUAL 0
+              ADD 1 TO WS-CTEXCLUIDOS
+              EXEC SQL
+                 COMMIT
+              END-EXEC
+           ELSE
+              IF SQLCODE EQUAL +100
+                 ADD 1 TO WS-CTINVALIDOS
+              ELSE
+                 MOVE "ERRO DELETE TBPRODUTO"
+                                           TO      WS-MSG
+                 MOVE SQLCODE              TO      WS-SQLCODE
+                 GO TO 9000-ERRO-DB2
+              END-IF
+           END-IF
+           .
+
+      *--------------------------------------------------------------*  00260013
+       2300-ALTERACAO.
+           IF WS-DESCPROD-D4 NOT EQUAL SPACES
+              MOVE +20                     TO      DESCPROD-LEN
+              MOVE WS-DESCPROD-D4          TO      DESCPROD-TEXT
+           END-IF
+
+           IF WS-UNIDPROD-D4 NOT EQUAL SPACES
+              MOVE WS-UNIDPROD-D4          TO      UNIDPROD
+           END-IF
+
+           IF WS-LOCALPROD-D4 NOT EQUAL SPACES
+              MOVE WS-LOCALPROD-D4         TO      LOCALPROD
+           END-IF
+
+           IF WS-QTDEST-D4    IS NUMERIC
+              MOVE WS-QTDEST-D4            TO      QTDEST
+           END-IF
+
+           IF WS-QTDMAX-D4    IS NUMERIC
+              MOVE WS-QTDMAX-D4            TO      QTDMAX
+           END-IF
+
+           IF WS-QTDMIN-D4    IS NUMERIC
+              MOVE WS-QTDMIN-D4            TO      QTDMIN
+           END-IF
+
+           IF WS-PRECOCOMPRA-D4 IS NUMERIC
+              MOVE WS-PRECOCOMPRA-D4       TO      PRECOCOMPRA
+           END-IF
+
+           IF WS-PRECOVENDA-D4 IS NUMERIC
+              MOVE WS-PRECOVENDA-D4        TO      PRECOVENDA
+           END-IF
+
+           IF WS-PERCOMIS-D4  IS NUMERIC
+              MOVE WS-PERCOMIS-D4          TO      PERCOMIS
+           END-IF
+
+           EXEC SQL
+              UPDATE TBPRODUTO
+              SET   DESCPROD     =  :DESCPROD
+                 ,  UNIDPROD     =  :UNIDPROD
+                 ,  LOCALPROD    =  :LOCALPROD
+                 ,  QTDEST       =  :QTDEST
+                 ,  QTDMAX       =  :QTDMAX
+                 ,  QTDMIN       =  :QTDMIN
+                 ,  PRECOCOMPRA  =  :PRECOCOMPRA
+                 ,  PRECOVENDA   =  :PRECOVENDA
+                 ,  PERCOMIS     =  :PERCOMIS
+              WHERE CURRENT OF MANUTENCAO
+           END-EXEC
+
+           IF SQLCODE EQUAL 0
+              ADD 1 TO WS-CTALTERADOS
+              EXEC SQL
+                 COMMIT
+              END-EXEC
+           ELSE
+              IF SQLCODE EQUAL +100
+                 ADD 1 TO WS-CTINVALIDOS
+              ELSE
+                 MOVE "ERRO UPDATE TBPRODUTO"
+                                           TO      WS-MSG
+                 MOVE SQLCODE              TO      WS-SQLCODE
+                 GO TO 9000-ERRO-DB2
+              END-IF
+           END-IF
+           .
+
+      *--------------------------------------------------------------*  00260013
+       3000-TERMINO.
+           CLOSE MOVPRDD4
+           IF NOT SUCESSO-CAD
+              MOVE "ERRO FECHAMENTO MOVPRDD4"
+                                           TO      WS-MSG
+              MOVE FS-MOVPRDD4             TO      WS-FS
+              GO TO 9000-ERRO
+           END-IF
+
+           ACCEPT WS-HORARIO-FINAL FROM TIME
+           COPY CALCTEMP.
+
+           MOVE WS-CTMOVLIDOS              TO      WS-CTMOVLIDOS-F
+           MOVE WS-CTCURPROD               TO      WS-CTCURPROD-F
+           MOVE WS-CTINVALIDOS             TO      WS-CTINVALIDOS-F
+           MOVE WS-CTCURLIDOS              TO      WS-CTCURLIDOS-F
+           MOVE WS-CTEXCLUIDOS             TO      WS-CTEXCLUIDOS-F
+           MOVE WS-CTALTERADOS             TO      WS-CTALTERADOS-F
+
+           PERFORM 9000-IMPRIME-DATA
+
+           DISPLAY "=================================================="
+           DISPLAY "==      ESTATISTICA FINAL DE PROCESSAMENTO      =="
+           DISPLAY "=================================================="
+           DISPLAY "QTDE. MOVIMENTOS LIDOS MOVPRDD4......:"
+                   WS-CTMOVLIDOS-F
+           DISPLAY "QTDE. PRODUTOS LIDOS NO CURSOR.......:"
+                   WS-CTCURLIDOS-F
+           DISPLAY "QTDE. PRODUTOS EXCLUIDOS.............:"
+                   WS-CTEXCLUIDOS-F
+           DISPLAY "QTDE. PRODUTOS ALTERADOS.............:"
+                   WS-CTALTERADOS-F
+           DISPLAY "QTDE. MOVIMENTOS INVALIDOS...........:"
+                   WS-CTINVALIDOS-F
+           DISPLAY "=================================================="
+           DISPLAY "TEMPO TOTAL DE PROCESSAMENTO.........:"
+                   WS-TEMPO-PROCESSAMENTO-F
+           DISPLAY "=================================================="
+           DISPLAY "==     TERMINO NORMAL DO PROGRAMA GPAZ02D4      =="
+           DISPLAY "=================================================="
+           .
+
+      *--------------------------------------------------------------*  00260013
+       9000-TRATA-INDICATOR.
+           IF IDESCPROD LESS ZERO
+              MOVE +20                     TO      DESCPROD-LEN
+              MOVE SPACES                  TO      DESCPROD-TEXT
+           END-IF
+
+           IF IUNIDPROD LESS ZERO
+              MOVE SPACES                  TO      UNIDPROD
+           END-IF
+
+           IF ILOCALPROD LESS ZERO
+              MOVE SPACES                  TO      LOCALPROD
+           END-IF
+
+           IF IQTDEST LESS ZERO
+              MOVE ZEROS                   TO      QTDEST
+           END-IF
+
+           IF IQTDMAX LESS ZERO
+              MOVE ZEROS                   TO      QTDMAX
+           END-IF
+
+           IF IQTDMIN LESS ZERO
+              MOVE ZEROS                   TO      QTDMIN
+           END-IF
+
+           IF IPRECOCOMPRA LESS ZERO
+              MOVE ZEROS                   TO      PRECOCOMPRA
+           END-IF
+
+           IF IPRECOVENDA  LESS ZERO
+              MOVE ZEROS                   TO      PRECOVENDA
+           END-IF
+
+           IF IPERCOMIS LESS ZERO
+              MOVE ZEROS                   TO      PERCOMIS
+           END-IF
+           .
+
+      *-----------------------------------------------*
+       9000-ERRO.
+            DISPLAY 'FILE STATUS....: ' WS-FS
+            DISPLAY WS-MSG
+            DISPLAY '*----------------------------------------------*'
+            DISPLAY '    TERMINO ANORMAL DO PROGRAMA GPAZ08D4        '
+            DISPLAY '*----------------------------------------------*'
+            STOP RUN
+            .
+      *------------------------------------------------*
+       9000-ERRO-DB2.
+            DISPLAY 'SQLCODE......: ' WS-SQLCODE
+            DISPLAY WS-MSG
+            DISPLAY '*---------------------------------------------*'
+            DISPLAY '    TERMINO ANORMAL DO PROGRAMA GPAZ08D4       '
+            DISPLAY '*---------------------------------------------*'
+            STOP RUN
+            .
+            COPY ROTDATA.
+      ****************************************************************
+      *          F I M  D O  P R O G R A M A  G P A Z 0 8 D 4        *
+      ****************************************************************
